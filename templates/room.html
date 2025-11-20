@@ -1,0 +1,475 @@
+{% extends 'layout.html' %}
+
+{% block content %}
+<style>
+    @keyframes typing-dot {
+        0% {
+            transform: translateY(0);
+        }
+
+        25% {
+            transform: translateY(-3px);
+        }
+
+        50% {
+            transform: translateY(0);
+        }
+
+        100% {
+            transform: translateY(0);
+        }
+    }
+
+    .typing-dots span {
+        display: inline-block;
+        width: 4px;
+        height: 4px;
+        background-color: #9ca3af;
+        border-radius: 50%;
+        margin: 0 1px;
+        animation: typing-dot 1.2s infinite ease-in-out;
+    }
+
+    .typing-dots span:nth-child(2) {
+        animation-delay: 0.2s;
+    }
+
+    .typing-dots span:nth-child(3) {
+        animation-delay: 0.4s;
+    }
+</style>
+
+<div class="flex flex-col md:flex-row gap-6 relative">
+
+    <!-- LOCKED OVERLAY (For Guests without permission) -->
+    {% if not has_access %}
+    <div
+        class="absolute inset-0 z-50 bg-gray-900 bg-opacity-95 flex flex-col items-center justify-center text-center p-8 rounded-lg backdrop-blur-sm border border-red-500/30">
+        <h2 class="text-3xl font-bold text-yellow-400 mb-4">🔒 Room Locked</h2>
+        <p class="text-white text-lg mb-6">
+            This room has been conquered by <strong class="text-green-400">{{ room.winner_name }}</strong>!
+            <br>The chat history is now private.
+        </p>
+        <button id="request-access-btn"
+            class="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition shadow-lg">
+            Request Permission to View
+        </button>
+        <p id="request-status" class="mt-4 text-green-400 hidden animate-pulse">Request sent to winner!</p>
+    </div>
+    {% endif %}
+
+    <!-- Main Chat Area -->
+    <div class="flex-grow md:w-2/3">
+        <div class="bg-gray-800 rounded-lg shadow-xl overflow-hidden border border-gray-700">
+
+            <!-- Header -->
+            <div class="p-4 border-b border-gray-700 flex flex-wrap items-center gap-4 justify-between bg-gray-900/50">
+                <div class="flex items-center gap-4">
+                    <img id="header-avatar-btn"
+                        src="{{ room.bot_image_url | default('https://placehold.co/100x100/4a5568/FFFFFF?text=Bot', true) }}"
+                        alt="{{ room.bot_name }}"
+                        class="w-14 h-14 rounded-full object-cover border-2 border-indigo-500 cursor-pointer">
+                    <div>
+                        <h1 class="text-xl md:text-2xl font-bold text-white">{{ room.bot_name }}</h1>
+                        <p class="text-sm text-gray-400">Code: <strong class="text-indigo-400 select-all">{{ room_code
+                                }}</strong></p>
+                        {% if is_owner %}
+                        <span
+                            class="text-[10px] uppercase tracking-wider bg-indigo-900 text-indigo-200 px-2 py-0.5 rounded border border-indigo-700">Host</span>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Host Actions -->
+                {% if is_owner %}
+                <div class="flex gap-2">
+                    <form action="{{ url_for('reset_chat') }}" method="POST"
+                        onsubmit="return confirm('{% if room.is_hosted %}End this session? You will return to the main menu.{% else %}Clear chat history?{% endif %}');">
+                        <input type="hidden" name="room_code" value="{{ room_code }}">
+                        <button type="submit"
+                            class="p-2 px-3 bg-yellow-600 text-white text-xs font-bold rounded hover:bg-yellow-700 flex items-center gap-1">
+                            <span>🔄</span>
+                            {% if room.is_hosted %}END SESSION{% else %}RESET{% endif %}
+                        </button>
+                    </form>
+
+
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- Chat Box -->
+            <div id="chat-box"
+                class="p-4 h-[60vh] overflow-y-auto space-y-4 scroll-smooth {% if not has_access %}blur-md{% endif %}">
+                <!-- Messages injected via JS -->
+            </div>
+
+            <!-- Input Area -->
+            <div class="p-4 border-t border-gray-700 bg-gray-800">
+                <form id="message-form" action="{{ url_for('chat_room', room_code=room_code) }}" method="POST"
+                    class="flex gap-4">
+                    <input type="text" id="message-input" name="message"
+                        placeholder="{% if has_access %}Type your message...{% else %}Access Denied{% endif %}"
+                        autocomplete="off" required {% if not has_access %}disabled{% endif %}
+                        class="flex-grow p-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed">
+                    <button type="submit" id="send-button" {% if not has_access %}disabled{% endif %}
+                        class="p-3 px-6 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed">
+                        Send
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sidebar -->
+    <div class="md:w-1/3 space-y-6">
+
+        <!-- Leaderboard -->
+        <div class="bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700">
+            <h2 class="text-xl font-semibold mb-4 text-white flex items-center gap-2">
+                <span>📊</span> Affection Levels
+            </h2>
+            <div id="leaderboard" class="space-y-4">
+                <!-- Leaderboard injected via JS -->
+            </div>
+        </div>
+
+        <!-- Winner Controls (Visible only to Winner) -->
+        {% if is_winner %}
+        <div class="bg-gray-800 p-6 rounded-lg shadow-xl border border-green-500/50 relative overflow-hidden">
+            <div class="absolute top-0 right-0 p-2 opacity-10 pointer-events-none">
+                <svg class="w-24 h-24 text-green-500" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd"
+                        d="M10 2a1 1 0 011 1v1.323l3.954 1.582 1.599-.8a1 1 0 01.894 1.79l-1.233.616 1.738 5.42a1 1 0 01-.285 1.05A3.989 3.989 0 0115 15a3.989 3.989 0 01-2.667-1.019 1 1 0 01-.633-.719l-.63-3.633-3.32-1.329a1 1 0 00-.75 0l-3.32 1.329-.63 3.633a1 1 0 01-.633.719A3.989 3.989 0 013.5 15 3.989 3.989 0 01.733 13.957 1 1 0 01.448 12.9l1.74-5.423-1.233-.616a1 1 0 01.894-1.79l1.599.8L7.417 4.323V3a1 1 0 011-1h2zM10 5a3 3 0 110 6 3 3 0 010-6z"
+                        clip-rule="evenodd"></path>
+                </svg>
+            </div>
+            <h2 class="text-xl font-semibold mb-2 text-green-400">👑 Winner Controls</h2>
+            <p class="text-xs text-gray-400 mb-4">You have won! The chat is locked. Approve requests below to let others
+                view the history.</p>
+
+            <div id="access-requests-list" class="space-y-2 max-h-60 overflow-y-auto">
+                <!-- Requests injected via JS -->
+                <p class="text-gray-500 text-sm italic text-center py-2">No pending requests.</p>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.10/firebase-app.js";
+    import { getFirestore, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/9.6.10/firebase-firestore.js";
+    import { getAuth } from "https://www.gstatic.com/firebasejs/9.6.10/firebase-auth.js";
+
+    const firebaseConfig = {
+        apiKey: "AIzaSyCLSLut9ZoyBk6N_oQHYYXZ7WthQCuQlRE",
+        authDomain: "miki-60246.firebaseapp.com",
+        projectId: "miki-60246",
+        storageBucket: "miki-60246.firebasestorage.app",
+        messagingSenderId: "40259793246",
+        appId: "1:40259793246:web:155e68f85c9cf8b0bb5fcf",
+        measurementId: "G-LDDY90PFVK"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const auth = getAuth(app);
+
+    document.addEventListener('DOMContentLoaded', (event) => {
+        const chatBox = document.getElementById('chat-box');
+        const leaderboard = document.getElementById('leaderboard');
+        const messageForm = document.getElementById('message-form');
+        const messageInput = document.getElementById('message-input');
+        const sendButton = document.getElementById('send-button');
+        const headerAvatarBtn = document.getElementById('header-avatar-btn');
+        const requestBtn = document.getElementById('request-access-btn');
+
+        const roomCode = '{{ room_code }}';
+        const currentUserID = '{{ user_id }}';
+        const botName = '{{ room.bot_name }}';
+        const botAvatarUrl = '{{ room.bot_image_url | default("", true) }}';
+        // --- FIX: Quoted boolean comparison to prevent SyntaxError ---
+        const isWinner = "{{ is_winner }}" === "True";
+
+        let userNicknames = {};
+        let typingIndicatorId = null;
+
+        // --- Permission Requests UI (For Winner) ---
+        function renderRequests(requests) {
+            const listEl = document.getElementById('access-requests-list');
+            if (!listEl) return;
+
+            if (!requests || requests.length === 0) {
+                listEl.innerHTML = '<p class="text-gray-500 text-sm italic text-center py-2">No pending requests.</p>';
+                return;
+            }
+
+            listEl.innerHTML = '';
+            requests.forEach(req => {
+                // Simple duplicate check logic could go here if needed
+                const item = document.createElement('div');
+                item.className = "flex justify-between items-center bg-gray-700/50 p-2 rounded border border-gray-600";
+                item.innerHTML = `
+                    <span class="text-sm text-white font-medium">${req.name}</span>
+                    <button class="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700 transition btn-approve" data-uid="${req.uid}">
+                        Approve
+                    </button>
+                `;
+                listEl.appendChild(item);
+            });
+
+            document.querySelectorAll('.btn-approve').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const targetUid = e.target.dataset.uid;
+                    e.target.textContent = "Adding...";
+                    e.target.disabled = true;
+                    try {
+                        await window.fetchWithAuth("{{ url_for('grant_access') }}", {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                            body: `room_code=${roomCode}&target_uid=${targetUid}`
+                        });
+                        e.target.parentElement.remove();
+                    } catch (err) {
+                        console.error(err);
+                        e.target.textContent = "Error";
+                    }
+                });
+            });
+        }
+
+        // --- Guest Request Logic ---
+        if (requestBtn) {
+            requestBtn.addEventListener('click', async () => {
+                requestBtn.disabled = true;
+                requestBtn.textContent = "Sending...";
+                try {
+                    await window.fetchWithAuth("{{ url_for('request_access') }}", {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: `room_code=${roomCode}`
+                    });
+                    requestBtn.classList.add('hidden');
+                    document.getElementById('request-status').classList.remove('hidden');
+                } catch (e) {
+                    requestBtn.textContent = "Failed. Try again.";
+                    requestBtn.disabled = false;
+                }
+            });
+        }
+
+        // --- Chat Helpers ---
+        function removeTypingIndicator() {
+            if (typingIndicatorId) {
+                const indicator = document.getElementById(typingIndicatorId);
+                if (indicator) indicator.parentElement.remove();
+                typingIndicatorId = null;
+            }
+        }
+
+        function addOptimisticMessage(userId, text) {
+            const displayName = userNicknames[userId] || 'You';
+            const msgEl = document.createElement('div');
+            msgEl.classList.add('chat-bubble', 'chat-bubble-self', 'self-end');
+            msgEl.innerHTML = `<strong class="block">You (${displayName})</strong><p>${text}</p>`;
+            const wrapper = document.createElement('div');
+            wrapper.classList.add('flex', 'justify-end', 'w-full');
+            wrapper.appendChild(msgEl);
+            chatBox.appendChild(wrapper);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        function addTypingIndicator() {
+            removeTypingIndicator();
+            typingIndicatorId = 'typing-' + Date.now();
+            const avatarImg = botAvatarUrl ? `<img src="${botAvatarUrl}" alt="avatar" class="chat-avatar cursor-pointer">` : '';
+            const msgEl = document.createElement('div');
+            msgEl.classList.add('chat-bubble', 'chat-bubble-bot', 'self-start');
+            msgEl.id = typingIndicatorId;
+            msgEl.innerHTML = `<strong class="block">${botName}</strong><p class="typing-dots"><span>.</span><span>.</span><span>.</span></p>`;
+
+            const wrapper = document.createElement('div');
+            wrapper.classList.add('flex', 'justify-start', 'w-full', 'items-end', 'gap-2');
+            if (botAvatarUrl) wrapper.innerHTML += avatarImg;
+            wrapper.appendChild(msgEl);
+            chatBox.appendChild(wrapper);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        function buildChatUI(messages) {
+            removeTypingIndicator();
+            chatBox.innerHTML = '';
+
+            const sortedMessages = messages.sort((a, b) => {
+                if (!a.timestamp) return -1;
+                if (!b.timestamp) return 1;
+                const aMillis = a.timestamp.toMillis ? a.timestamp.toMillis() : a.timestamp;
+                const bMillis = b.timestamp.toMillis ? b.timestamp.toMillis() : b.timestamp;
+                return aMillis - bMillis;
+            });
+
+            sortedMessages.forEach(msg => {
+                const msgEl = document.createElement('div');
+                msgEl.classList.add('chat-bubble', 'shadow-sm');
+                let content = '';
+                let displayName = '';
+                const avatarImg = botAvatarUrl ? `<img src="${botAvatarUrl}" alt="avatar" class="chat-avatar cursor-pointer shadow-md">` : '';
+
+                if (msg.user_id === 'System') {
+                    msgEl.classList.add('chat-bubble-system', 'w-full', 'text-center', 'text-xs', 'opacity-80');
+                    content = `<p>${msg.text}</p>`;
+                } else if (msg.user_id === botName) {
+                    displayName = msg.user_id;
+                    msgEl.classList.add('chat-bubble-bot', 'self-start');
+                    content = `<strong class="block text-indigo-300">${displayName}</strong><p>${msg.text}</p>`;
+                } else {
+                    displayName = userNicknames[msg.user_id] || msg.user_id;
+                    if (msg.user_id === currentUserID) {
+                        msgEl.classList.add('chat-bubble-self', 'self-end');
+                        content = `<strong class="block text-blue-100">You</strong><p>${msg.text}</p>`;
+                    } else {
+                        msgEl.classList.add('chat-bubble-other', 'self-start');
+                        content = `<strong class="block text-gray-300">${displayName}</strong><p>${msg.text}</p>`;
+                    }
+                }
+                msgEl.innerHTML = content;
+
+                if (msg.user_id === 'System') {
+                    const wrapper = document.createElement('div');
+                    wrapper.classList.add('flex', 'justify-center', 'w-full', 'my-2');
+                    wrapper.appendChild(msgEl);
+                    chatBox.appendChild(wrapper);
+                } else if (msg.user_id === currentUserID) {
+                    const wrapper = document.createElement('div');
+                    wrapper.classList.add('flex', 'justify-end', 'w-full');
+                    wrapper.appendChild(msgEl);
+                    chatBox.appendChild(wrapper);
+                } else {
+                    const wrapper = document.createElement('div');
+                    wrapper.classList.add('flex', 'justify-start', 'w-full', 'items-end', 'gap-2');
+                    if (msg.user_id === botName && botAvatarUrl) {
+                        wrapper.innerHTML = avatarImg;
+                    }
+                    wrapper.appendChild(msgEl);
+                    chatBox.appendChild(wrapper);
+                }
+            });
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        function buildLeaderboardUI(users) {
+            if (!users) return;
+            leaderboard.innerHTML = '';
+            userNicknames = {};
+            Object.keys(users).forEach(userId => {
+                userNicknames[userId] = users[userId].nickname;
+            });
+
+            if (Object.keys(users).length === 0) {
+                leaderboard.innerHTML = '<p class="text-gray-500 text-sm">No users yet.</p>';
+                return;
+            }
+
+            const sortedUsers = Object.entries(users).sort(([, a], [, b]) => b.score - a.score);
+
+            sortedUsers.forEach(([userId, userData]) => {
+                const userEl = document.createElement('div');
+                let displayName = userData.nickname;
+                let score = userData.score;
+                let barColor = "bg-blue-600";
+
+                if (score >= 100) barColor = "bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]";
+                else if (score >= 80) barColor = "bg-pink-500";
+
+                userEl.innerHTML = `
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="font-medium text-sm ${userId === currentUserID ? 'text-blue-300' : 'text-gray-300'} truncate max-w-[150px]">
+                            ${displayName} ${userId === currentUserID ? '(You)' : ''}
+                        </span>
+                        <span class="text-sm font-bold ${score === 100 ? 'text-green-400' : 'text-white'}">${score}%</span>
+                    </div>
+                    <div class="w-full bg-gray-700 rounded-full h-2">
+                        <div class="${barColor} h-2 rounded-full transition-all duration-500" style="width: ${score}%"></div>
+                    </div>
+                `;
+                leaderboard.appendChild(userEl);
+            });
+        }
+
+        // --- Snapshot Listener ---
+        const roomRef = doc(db, "rooms", roomCode);
+        onSnapshot(roomRef, (docSnap) => {
+            if (!docSnap.exists()) { window.location.href = '/'; return; }
+            const roomData = docSnap.data();
+
+            // Access check for Guest (if I was locked out but now approved)
+            if (!isWinner && '{{ has_access }}' == 'False') {
+                if (roomData.allowed_viewers && roomData.allowed_viewers.includes(currentUserID)) {
+                    window.location.reload();
+                }
+            }
+
+            buildLeaderboardUI(roomData.users);
+            if (roomData.messages) buildChatUI(roomData.messages);
+
+            // Winner requests
+            if (isWinner && roomData.access_requests) {
+                renderRequests(roomData.access_requests);
+            }
+
+            // Game over state
+            if (roomData.winner_uid && !isWinner && !roomData.allowed_viewers?.includes(currentUserID)) {
+                // If I am not winner and not allowed, UI is locked via template, but JS might need to stop polling if security rules were strict.
+            }
+        });
+
+        if (messageForm) {
+            messageForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const message = messageInput.value;
+                if (!message.trim()) return;
+
+                addOptimisticMessage(currentUserID, message);
+                addTypingIndicator();
+                messageInput.value = '';
+                messageInput.focus();
+
+                try {
+                    const formData = new FormData();
+                    formData.append('message', message);
+                    const response = await window.fetchWithAuth(messageForm.action, {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    const data = await response.json(); // Parse JSON
+
+                    if (response.ok && data.success) {
+                        // === UPDATE COIN DISPLAY ===
+                        if (data.new_coin_count !== undefined) {
+                            const navCoin = document.getElementById('nav-coin-count');
+                            if (navCoin) navCoin.innerText = data.new_coin_count;
+                        }
+                    } else {
+                        // === HANDLE ERRORS ===
+                        removeTypingIndicator();
+
+                        if (response.status === 402) {
+                            // Coin Error
+                            alert("⚠️ " + data.error + "\n\nPlease click 'Buy' in the menu.");
+                        } else {
+                            console.error("Server Error:", data.error);
+                        }
+                    }
+                } catch (error) {
+                    console.error(error);
+                    removeTypingIndicator();
+                }
+            });
+        }
+
+        if (headerAvatarBtn) headerAvatarBtn.addEventListener('click', () => openImageModal(botAvatarUrl));
+    });
+</script>
+{% endblock %}
