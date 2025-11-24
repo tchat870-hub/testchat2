@@ -488,13 +488,35 @@ def chat_room(room_code):
             # PRO MODE (Unfiltered/Winner)
             if room_data.get('model_version') == 'pro':
                 if not openrouter_api_key: raise ValueError("No OpenRouter Key")
+                
                 hist = build_openrouter_prompt_messages(room_data, nickname, msg)
+                
+                # Make the request
                 r = requests.post(
                     OPENROUTER_API_URL, 
-                    headers={"Authorization": f"Bearer {openrouter_api_key}"},
+                    headers={
+                        "Authorization": f"Bearer {openrouter_api_key}",
+                        "Content-Type": "application/json",
+                        "HTTP-Referer": "https://botafection.com", # Required by OpenRouter
+                        "X-Title": "BotAffection" # Required by OpenRouter
+                    },
                     json={"model": PRO_MODEL_NAME, "messages": hist}
                 )
-                bot_resp = r.json()['choices'][0]['message']['content']
+                
+                response_json = r.json()
+                
+                # --- ERROR CHECKING ---
+                if 'error' in response_json:
+                    print(f"OpenRouter API Error: {response_json}")
+                    error_msg = response_json['error'].get('message', 'Unknown API Error')
+                    raise ValueError(f"AI Provider Error: {error_msg}")
+                
+                if 'choices' not in response_json:
+                    print(f"Unexpected Response: {response_json}")
+                    raise ValueError("AI response format was invalid.")
+                # ----------------------
+
+                bot_resp = response_json['choices'][0]['message']['content']
                 msgs_to_add.append({'user_id': room_data['bot_name'], 'text': bot_resp, 'timestamp': py_time})
                 room_ref.update({'messages': firestore.ArrayUnion(msgs_to_add)})
             
